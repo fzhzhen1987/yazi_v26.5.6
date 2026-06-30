@@ -1,0 +1,237 @@
+# Yazi 配置文件 (Windows, yazi 26.x)
+# 文档: https://yazi-rs.github.io/docs/configuration/yazi
+#
+# 26.x 关键变化:
+#   - opener 占位符: %s1=首个文件 %s=所有文件 %d1=首个文件目录 %S=所有URL
+#     不再用 %1/%*/$@（且 yazi 自动处理引号，不需要手动加 ""）
+#   - [tasks] 字段重命名: micro/macro_workers → file/plugin/fetch/preload/process_workers
+#   - [confirm] 字段重命名: *_content → *_body
+#   - fetcher/previewer/spotter/preloader 用 url= 不用 name=
+
+# ============================================================
+# 文件管理器核心设置
+# ============================================================
+[mgr]
+ratio = [1, 4, 3]
+
+sort_by = "natural"
+sort_sensitive = false
+sort_reverse = false
+sort_dir_first = true
+sort_translit = false
+sort_fallback = "alphabetical"
+
+linemode = "none"
+show_hidden = false
+show_symlink = true
+
+scrolloff = 10
+#mouse_events = ["click", "scroll", "drag"]   # 默认值；按 Shift 拖选可绕过鼠标接管
+mouse_events = [ ]   # 默认值；按 Shift 拖选可绕过鼠标接管
+title_format = "Yazi: {cwd}"
+
+# ============================================================
+# 预览设置
+# ============================================================
+[preview]
+wrap = "no"
+tab_size = 2
+
+max_width = 600
+max_height = 900
+image_filter = "triangle"
+image_quality = 75
+image_delay = 30
+
+cache_dir = ""
+
+# ============================================================
+# 文件打开器
+# ============================================================
+[opener]
+# 编辑器（VS Code，等待关闭）
+edit = [
+	{ run = "code %s",            desc = "VS Code",         orphan = true, for = "windows" },
+	{ run = '${EDITOR:-vi} "$@"', desc = "$EDITOR",         block = true,  for = "unix" },
+]
+
+# 默认打开（系统关联程序）
+open = [
+	{ run = 'start "" %s1',  desc = "Open", orphan = true, for = "windows" },
+	{ run = 'xdg-open "$1"', desc = "Open",                for = "linux" },
+	{ run = 'open "$@"',     desc = "Open",                for = "macos" },
+]
+
+# 在文件管理器中显示
+reveal = [
+	{ run = "explorer /select,%s1",       desc = "Reveal", orphan = true, for = "windows" },
+	{ run = 'xdg-open "$(dirname "$1")"', desc = "Reveal",                for = "linux" },
+]
+
+# 播放器（走系统关联）
+play = [
+	{ run = 'start "" %s1',          desc = "Play", orphan = true, for = "windows" },
+	{ run = 'mpv --force-window %s', desc = "Play", orphan = true, for = "unix" },
+]
+
+# 解压（ouch）
+extract = [
+	{ run = "ouch d -y %s", desc = "Extract here with ouch", block = true, for = "windows" },
+	{ run = "ouch d -y %s", desc = "Extract here with ouch", block = true, for = "unix" },
+]
+
+# 解压 zip（Windows 上 ouch 没 unix 符号链接 bug）
+extract_zip = [
+	{ run = "ouch d -y %s1",  desc = "Extract zip with ouch",  block = true, for = "windows" },
+	{ run = "unzip -q %s1",   desc = "Extract zip with unzip", block = true, for = "unix" },
+]
+
+# ============================================================
+# 文件类型规则
+# ============================================================
+[open]
+prepend_rules = [
+	# zip 用专门规则（保留以便后续切换）
+	{ mime = "application/zip", use = "extract_zip" },
+
+	# 其他压缩文件用 ouch
+	{ mime = "application/x-tar",           use = "extract" },
+	{ mime = "application/x-bzip2",         use = "extract" },
+	{ mime = "application/x-7z-compressed", use = "extract" },
+	{ mime = "application/x-rar",           use = "extract" },
+	{ mime = "application/vnd.rar",         use = "extract" },
+	{ mime = "application/x-xz",            use = "extract" },
+	{ mime = "application/gzip",            use = "extract" },
+]
+
+# ============================================================
+# 任务管理（26.x 新字段名）
+# ============================================================
+[tasks]
+file_workers     = 5
+plugin_workers   = 5
+fetch_workers    = 5
+preload_workers  = 5
+process_workers  = 5
+bizarre_retry    = 3
+suppress_preload = false
+
+image_alloc = 536870912      # 512MB
+image_bound = [5000, 5000]
+
+# ============================================================
+# 插件系统
+# ============================================================
+[plugin]
+# Git fetcher 暂时停用（git-custom 需要为 26.x 重写）
+# prepend_fetchers = [
+#	{ url = "*",  run = "git-custom", prio = "normal", group = "git" },
+#	{ url = "*/", run = "git-custom", prio = "normal", group = "git" },
+# ]
+
+# MIME 检测：用 mime-ext.yazi 按扩展名查表，替换默认的 file(1)
+# 默认 mime.local 在 Windows 上要 fork file.exe，每个文件起一个 MSYS 进程，
+# 进入大目录就把 fetch_workers 跑满，预览也跟着卡（previewer 等 mime）。
+[[plugin.prepend_fetchers]]
+url   = "local://*"
+run   = "mime-ext.local"
+prio  = "high"
+group = "mime"
+
+[[plugin.prepend_fetchers]]
+url   = "remote://*"
+run   = "mime-ext.remote"
+prio  = "high"
+group = "mime"
+
+# 预览器规则（26.x: glob 用 url，mime 用 mime）
+prepend_previewers = [
+	# 压缩文件预览（ouch）- 必须在最前面
+	{ url = "*.tar.xz",  run = "ouch" },
+	{ url = "*.tar.gz",  run = "ouch" },
+	{ url = "*.tar.bz2", run = "ouch" },
+	{ url = "*.zip",     run = "ouch" },
+	{ url = "*.7z",      run = "ouch" },
+	{ url = "*.rar",     run = "ouch" },
+
+	{ mime = "application/zip",             run = "ouch" },
+	{ mime = "application/x-tar",           run = "ouch" },
+	{ mime = "application/x-bzip2",         run = "ouch" },
+	{ mime = "application/x-7z-compressed", run = "ouch" },
+	{ mime = "application/x-rar",           run = "ouch" },
+	{ mime = "application/vnd.rar",         run = "ouch" },
+	{ mime = "application/x-xz",            run = "ouch" },
+]
+
+# ============================================================
+# 输入框设置
+# ============================================================
+[input]
+cursor_blink = false
+
+cd_title = "Change directory:"
+cd_origin = "top-center"
+cd_offset = [0, 2, 50, 3]
+
+create_title = ["Create:", "Create (dir):"]
+create_origin = "top-center"
+create_offset = [0, 2, 50, 3]
+
+rename_title = "Rename:"
+rename_origin = "hovered"
+rename_offset = [0, 1, 50, 3]
+
+filter_title = "Filter:"
+filter_origin = "top-center"
+filter_offset = [0, 2, 50, 3]
+
+find_title = ["Find next:", "Find previous:"]
+find_origin = "top-center"
+find_offset = [0, 2, 50, 3]
+
+search_title = "Search via {n}:"
+search_origin = "top-center"
+search_offset = [0, 2, 50, 3]
+
+shell_title = ["Shell:", "Shell (block):"]
+shell_origin = "top-center"
+shell_offset = [0, 2, 50, 3]
+
+# ============================================================
+# 确认对话框（26.x: _content → _body）
+# ============================================================
+[confirm]
+trash_title = "Trash {n} selected file{s}?"
+trash_origin = "center"
+trash_offset = [0, 0, 70, 20]
+
+delete_title = "Permanently delete {n} selected file{s}?"
+delete_origin = "center"
+delete_offset = [0, 0, 70, 20]
+
+overwrite_title  = "Overwrite file?"
+overwrite_body   = "Will overwrite the following file:"
+overwrite_origin = "center"
+overwrite_offset = [0, 0, 50, 15]
+
+quit_title  = "Quit?"
+quit_body   = "There are unfinished tasks, quit anyway?\n(Open task manager with default key 'w')"
+quit_origin = "center"
+quit_offset = [0, 0, 50, 15]
+
+# ============================================================
+# 选择器
+# ============================================================
+[pick]
+open_title = "Open with:"
+open_origin = "hovered"
+open_offset = [0, 1, 50, 7]
+
+# ============================================================
+# 快捷键提示
+# ============================================================
+[which]
+sort_by = "none"
+sort_sensitive = false
+sort_reverse = false
+sort_translit = false
